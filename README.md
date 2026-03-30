@@ -111,6 +111,21 @@ cxtree create
 cxtree create -o docs/llm-context.md   # custom output path
 ```
 
+**`--docs` / `--code` / `--include`** — override the effective tag on every
+file at render time without modifying any configuration files. Useful for a
+quick one-off render in a different mode.
+
+| Flag | Effect |
+|---|---|
+| `--docs` | Render only docstrings for every symbol |
+| `--code` | Render code bodies, strip docstrings |
+| `--include` | Render full source (code + docstrings) |
+
+```bash
+cxtree create --code     # one-shot code render, no yaml changes
+cxtree create --docs     # one-shot docs render
+```
+
 **`--max-lines N`** (default: 3 000) — maximum number of lines allowed in a
 single `context.md`. When the generated content exceeds this limit the file is
 **not** written at the current level; instead one `context.md` is created per
@@ -133,6 +148,10 @@ project/
 └── settings/
     └── context.md          # config.py
 ```
+
+Every `create` run first removes all existing `context.md` files under the
+project root (excluding `.abstract-tree/`) so stale split files from a
+previous `-n <small>` run never accumulate alongside the new output.
 
 `cxtree rm` removes **all** `context.md` files in subdirectories as well as the
 root one. When `--output` is given explicitly, `--max-lines` is ignored and a
@@ -181,21 +200,24 @@ cxtree tree
 Folders are shown in orange, `.py` files in blue, everything else in white.
 
 **`-n / --max-lines N`** (default: 3 000) — overlay line-budget percentages on
-the tree. A percentage is shown **only** at directories where
-`create --max-lines N` would actually write a `context.md`, i.e.:
+the tree. A percentage is shown at directories where `create --max-lines N`
+would actually write a `context.md`:
 
 - The directory's content **fits** within the budget (≤ 100 % → not split further), **and**
 - Its parent **overflows** (> 100 % → was split), forcing this directory to get its own file.
   The project root is shown when it fits and no splitting would occur at all.
 
-Directories that overflow are never annotated — they would be split and their
-children shown instead.
+**Leaf directories** (no subdirectories with content) always show their
+percentage even when they exceed 100 %, because there is nothing left to split
+into. A magenta label signals that the module is too large and should be broken
+up into smaller sub-packages.
 
 | Colour | Range |
 |---|---|
 | green | ≤ 80 % |
 | yellow | 80 – 90 % |
 | red | 90 – 100 % |
+| magenta | > 100 % (leaf, cannot split further) |
 
 ```bash
 cxtree tree           # uses default budget of 3 000 lines

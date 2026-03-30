@@ -110,11 +110,46 @@ def cmd_init(
         "until the limit is met or leaf directories are reached."
     ),
 )
-def cmd_create(root: Path, output: Path | None, max_lines: int) -> None:
-    """Generate context.md from abstract-tree.yaml configuration."""
+@click.option(
+    "--docs",
+    "explicit_tag",
+    flag_value="docs",
+    help=(
+        "Re-init with 'docs' tag before creating: docstrings are pulled from source "
+        "at render time. Equivalent to running init --docs then create."
+    ),
+)
+@click.option(
+    "--code",
+    "explicit_tag",
+    flag_value="code",
+    help=(
+        "Re-init with 'code' tag before creating: code bodies are rendered, "
+        "docstrings stripped. Equivalent to running init --code then create."
+    ),
+)
+@click.option(
+    "--include",
+    "explicit_tag",
+    flag_value="include",
+    help=(
+        "Re-init with 'include' tag before creating: full source (code + docstrings) "
+        "is rendered. Equivalent to running init --include then create."
+    ),
+)
+def cmd_create(
+    root: Path, output: Path | None, max_lines: int, explicit_tag: str | None
+) -> None:
+    """Generate context.md from abstract-tree.yaml configuration.
+
+    Pass --docs, --code, or --include to override the effective tag on every
+    file at render time without modifying any configuration files.
+    """
     resolved_root = root.resolve()
     resolved_output = output.resolve() if output else None
-    run_create(resolved_root, resolved_output, max_lines=max_lines)
+    run_create(
+        resolved_root, resolved_output, max_lines=max_lines, explicit_tag=explicit_tag
+    )
 
 
 @main.command("rm")

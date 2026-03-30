@@ -364,6 +364,38 @@ class TestRenderPythonFile:
         assert "visible" in result
         assert "hidden" not in result
 
+    def test_code_tag_strips_module_docstring(self, tmp_path: Path):
+        src = textwrap.dedent("""\
+        '''Module docstring.'''
+
+        def foo():
+            '''Function docstring.'''
+            return 1
+        """)
+        f = tmp_path / "mod.py"
+        f.write_text(src)
+        result = render_python_file(f, None, "code")
+        assert "Module docstring." not in result
+        assert "Function docstring." not in result
+        assert "def foo():" in result
+        assert "return 1" in result
+
+    def test_code_tag_keeps_imports(self, tmp_path: Path):
+        src = textwrap.dedent("""\
+        '''Module docstring.'''
+
+        import os
+
+        def bar():
+            return os.getcwd()
+        """)
+        f = tmp_path / "mod.py"
+        f.write_text(src)
+        result = render_python_file(f, None, "code")
+        assert "Module docstring." not in result
+        assert "import os" in result
+        assert "def bar():" in result
+
     def test_syntax_error_returns_raw(self, tmp_path: Path):
         src = "def foo(:\n    pass\n"
         f = tmp_path / "broken.py"

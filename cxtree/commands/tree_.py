@@ -85,6 +85,15 @@ def _should_show_pct(
     return parent_count is not None and parent_count > max_lines
 
 
+def _is_leaf_dir(directory: Path, dir_lines: dict[Path, int]) -> bool:
+    """Return True if *directory* has no subdirectory entries in dir_lines.
+
+    Leaf directories receive a single context.md regardless of line count
+    because there is nothing to split into.
+    """
+    return not any(p.parent == directory for p in dir_lines if p != directory)
+
+
 def _pct_label(line_count: int, max_lines: int, name_len: int = 0) -> str:
     """Return a Rich-markup percentage label with adaptive dot padding.
 
@@ -92,9 +101,19 @@ def _pct_label(line_count: int, max_lines: int, name_len: int = 0) -> str:
     appears at a consistent column regardless of the folder name length.
     Each dot unit is three characters (`` . ``).  A minimum of two units is
     always used so the label never looks cramped.
+
+    Colors: green ≤ 80 %, yellow ≤ 90 %, red ≤ 100 %, magenta > 100 %
+    (over-budget leaf — consider splitting the module).
     """
     pct = line_count / max_lines * 100
-    color = "red" if pct > 90 else "yellow" if pct > 80 else "green"
+    if pct > 100:
+        color = "magenta"
+    elif pct > 90:
+        color = "red"
+    elif pct > 80:
+        color = "yellow"
+    else:
+        color = "green"
     # Target: name + dots ≈ 30 display chars.  Each " . " = 3 chars.
     n_dots = max(2, 80 - name_len)
     dots = "." * n_dots
@@ -131,8 +150,16 @@ def _build_rich_tree(
                 continue
             label = f"[bold orange1]{name}[/bold orange1]"
             if dir_lines is not None and max_lines > 0:
+                count = dir_lines.get(item)
                 if _should_show_pct(item, project_root, dir_lines, max_lines):
                     label += _pct_label(dir_lines[item], max_lines, len(name))
+                elif (
+                    count is not None
+                    and count > max_lines
+                    and _is_leaf_dir(item, dir_lines)
+                ):
+                    # Leaf dir that exceeds budget — show >100% to hint at refactoring
+                    label += _pct_label(count, max_lines, len(name))
             child_node = tree_node.add(label)
             _build_rich_tree(
                 item, child_node, config, dir_lines, max_lines, project_root
@@ -161,8 +188,15 @@ def run_tree(root: Path, max_lines: int = 3000) -> None:
     dir_lines = _compute_dir_line_counts(walk_result)
 
     root_label = f"[bold red]{root.name.upper()}[/bold red]"
+    root_count = dir_lines.get(root)
     if _should_show_pct(root, root, dir_lines, max_lines):
         root_label += _pct_label(dir_lines[root], max_lines, len(root.name))
+    elif (
+        root_count is not None
+        and root_count > max_lines
+        and _is_leaf_dir(root, dir_lines)
+    ):
+        root_label += _pct_label(root_count, max_lines, len(root.name))
 
     root_tree = Tree(root_label)
     _build_rich_tree(root, root_tree, config, dir_lines, max_lines, root)

@@ -446,6 +446,7 @@ def _render_file_with_tag(
     """Apply a single tag to all top-level classes and functions."""
     output_lines: list[str] = []
     last_was_symbol = False
+    is_first_node = True
 
     for node in tree.body:
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
@@ -476,6 +477,10 @@ def _render_file_with_tag(
                 output_lines.extend(rendered)
                 last_was_symbol = True
         else:
+            # Skip module-level docstring when tag is "code" (docstrings are stripped)
+            if tag == "code" and _is_module_docstring(node, is_first_node):
+                is_first_node = False
+                continue
             # Non-symbol lines (imports, assignments, etc.)
             if last_was_symbol:
                 output_lines.append("\n")
@@ -484,6 +489,7 @@ def _render_file_with_tag(
                 node_lines = _filter_blank_lines(node_lines)
             output_lines.extend(node_lines)
             last_was_symbol = False
+        is_first_node = False
 
     if last_was_symbol:
         output_lines.append("\n")

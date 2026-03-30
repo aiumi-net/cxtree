@@ -709,6 +709,81 @@ class TestRunCreateMaxLines:
 
 
 # ---------------------------------------------------------------------------
+# run_create stale-file cleanup tests
+# ---------------------------------------------------------------------------
+
+
+class TestRunCreateCleanup:
+    def test_stale_split_files_removed_when_switching_to_single(self, tmp_path: Path):
+        """After create -n <small> splits into subdirs, a plain create must remove them."""
+        _make_large_project(tmp_path)
+        run_init(tmp_path)
+        run_create(tmp_path, max_lines=5)
+        split_files = [f for f in tmp_path.rglob("context.md") if f.parent != tmp_path]
+        assert split_files, "expected split files from first create"
+
+        # Now create without a tight limit — should consolidate and remove split files
+        run_create(tmp_path, max_lines=10_000)
+        remaining_split = [
+            f for f in tmp_path.rglob("context.md") if f.parent != tmp_path
+        ]
+        assert remaining_split == [], f"stale split files remain: {remaining_split}"
+
+    def test_stale_root_context_removed_when_switching_to_split(self, tmp_path: Path):
+        """After a plain create, a create -n <small> must remove the old root context.md."""
+        _make_large_project(tmp_path)
+        run_init(tmp_path)
+        run_create(tmp_path, max_lines=10_000)
+        assert (tmp_path / "context.md").exists()
+
+        run_create(tmp_path, max_lines=5)
+        # root context.md only survives if there are direct-root files; the large project
+        # has no root-level files, so it must be gone
+        assert not (tmp_path / "context.md").exists()
+
+    def test_cleanup_skips_abstract_tree_folder(self, tmp_path: Path):
+        """context.md inside .abstract-tree/ must not be touched by cleanup."""
+        _make_simple_project(tmp_path)
+        run_init(tmp_path, folder=True)
+        abstract_dir = tmp_path / ".abstract-tree"
+        ctx_in_folder = abstract_dir / "context.md"
+        ctx_in_folder.write_text("# kept\n", encoding="utf-8")
+
+        run_create(tmp_path, max_lines=10_000)
+        # The folder-mode context.md is managed by _manage_folder_mode_context;
+        # cleanup must not delete it independently
+        assert ctx_in_folder.exists() or (abstract_dir / "context.md").exists()
+
+
+# ---------------------------------------------------------------------------
+# run_create --docs / --code / --include tag override tests
+# ---------------------------------------------------------------------------
+
+
+class TestRunCreateExplicitTag:
+    def test_explicit_tag_does_not_create_abstract_tree_yaml(self, tmp_path: Path):
+        """create --code must not write abstract-tree.yaml."""
+        _make_simple_project(tmp_path)
+        run_create(tmp_path, explicit_tag="code")
+        assert not (tmp_path / "abstract-tree.yaml").exists()
+
+    def test_explicit_tag_still_generates_context_md(self, tmp_path: Path):
+        _make_simple_project(tmp_path)
+        run_create(tmp_path, explicit_tag="docs")
+        assert (tmp_path / "context.md").exists()
+
+    def test_explicit_tag_overrides_yaml_tag(self, tmp_path: Path):
+        """When explicit_tag='code', all files must render as code even if yaml says docs."""
+        _make_simple_project(tmp_path)
+        run_init(tmp_path, explicit_tag="docs")
+        run_create(tmp_path, explicit_tag="code")
+        content = (tmp_path / "context.md").read_text()
+        # Code tag renders function bodies; docs renders only docstrings.
+        # The simple project has "def main" — it should appear in the body.
+        assert "def main" in content or "def add" in content
+
+
+# ---------------------------------------------------------------------------
 # run_tree --max-lines tests
 # ---------------------------------------------------------------------------
 

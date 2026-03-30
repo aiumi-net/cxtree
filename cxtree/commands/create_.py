@@ -115,8 +115,30 @@ def _split_context(
         _split_context(sub_files, subdir, project_root, config, max_lines, written)
 
 
-def run_create(root: Path, output: Path | None = None, max_lines: int = 3000) -> None:
-    """Walk directory, apply abstract.yaml config, render context.md."""
+def _cleanup_context_files(root: Path) -> None:
+    """Remove all context.md files under *root*, skipping the .abstract-tree/ folder.
+
+    Called before writing new context files so that stale split files from a
+    previous ``create -n <small>`` run do not accumulate alongside the new ones.
+    """
+    abstract_tree_dir = root / ABSTRACT_TREE_FOLDER
+    for ctx in root.rglob("context.md"):
+        if not ctx.is_relative_to(abstract_tree_dir):
+            ctx.unlink()
+
+
+def run_create(
+    root: Path,
+    output: Path | None = None,
+    max_lines: int = 3000,
+    explicit_tag: str | None = None,
+) -> None:
+    """Walk directory, apply abstract.yaml config, render context.md.
+
+    *explicit_tag* (``"docs"``, ``"code"``, or ``"include"``) overrides the
+    effective tag on every non-excluded file entry at render time without
+    modifying any YAML configuration files.
+    """
     abstract_dir = get_abstract_tree_dir(root)
     folder_mode = abstract_dir != root
 
@@ -133,6 +155,11 @@ def run_create(root: Path, output: Path | None = None, max_lines: int = 3000) ->
     walker = ProjectWalker(root)
     result = walker.walk()
 
+    if explicit_tag:
+        for fe in result.files:
+            if fe.tag != "exclude":
+                fe.tag = explicit_tag
+
     if not result.files:
         console.print("[yellow]Warning:[/yellow] No files found to include in context.")
 
@@ -141,6 +168,9 @@ def run_create(root: Path, output: Path | None = None, max_lines: int = 3000) ->
 
     # When an explicit output path is given, always write there regardless of max_lines.
     if output or line_count <= max_lines:
+        # Remove stale context.md files from previous split runs before writing.
+        if not output:
+            _cleanup_context_files(root)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         output_path.write_text(content, encoding="utf-8")
         console.print(f"[green]Written[/green] {output_path}")
@@ -148,6 +178,7 @@ def run_create(root: Path, output: Path | None = None, max_lines: int = 3000) ->
         console.print(f"  Size: {len(content):,} characters ({line_count:,} lines)")
     else:
         # Content exceeds max_lines: split recursively by folder
+        _cleanup_context_files(root)
         console.print(
             f"[yellow]Content exceeds {max_lines:,} lines ({line_count:,} lines) — "
             f"splitting into per-folder context.md files.[/yellow]"
