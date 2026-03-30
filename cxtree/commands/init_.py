@@ -88,61 +88,71 @@ def _docstring_lines(node: _ast.AST) -> list[_QuotedStr] | None:
     return [_QuotedStr(line) for line in lines]
 
 
-def _build_file_entry(path: Path) -> Any:
+def _build_file_entry(path: Path, explicit_tag: str | None = None) -> Any:
     """Parse a Python file and return an abstract-tree.yaml entry value.
 
     For each top-level class and function:
-    - Docstring present  → list of _QuotedStr lines (one per docstring line)
-    - No docstring       → "docs" tag (shows code at render time)
+    - Docstring present  → list of _QuotedStr lines (one per docstring line),
+                           unless *explicit_tag* is set, in which case that tag
+                           is written instead of embedding the docstring text.
+    - No docstring       → the *explicit_tag* if given, else ``"docs"``
 
-    Classes with methods use the long form: {abstract: [...], def: {name: [...]|"docs"}}
-    Classes without methods and bare functions use a simple list or "docs".
-    Files with no classes or functions return the module docstring list or "docs".
+    Classes with methods use the long form: {x_abstract: [...], def: {name: [...]|tag}}
+    Classes without methods and bare functions use a simple list or tag.
+    Files with no classes or functions return the module docstring list or a tag.
+
+    *explicit_tag* must be one of ``"docs"``, ``"code"``, ``"include"`` or ``None``.
+    When set, no docstring text is ever embedded — the tag is used everywhere so the
+    renderer resolves the text from source at render time.
     """
+    fallback = explicit_tag or "docs"
+
     if path.suffix != ".py":
         return "include"
     try:
         source = path.read_text(encoding="utf-8")
         tree = _ast.parse(source, filename=str(path))
     except Exception:
-        return "docs"
+        return fallback
 
     classes: dict[str, Any] = {}
     functions: dict[str, Any] = {}
 
     for node in tree.body:
         if isinstance(node, _ast.ClassDef):
-            class_lines = _docstring_lines(node)
+            class_lines = None if explicit_tag else _docstring_lines(node)
             methods: dict[str, Any] = {}
             for item in node.body:
                 if isinstance(item, (_ast.FunctionDef, _ast.AsyncFunctionDef)):
                     if item.name in _SKIP_DUNDERS:
                         continue
-                    m_lines = _docstring_lines(item)
-                    methods[item.name] = m_lines if m_lines is not None else "docs"
+                    m_lines = None if explicit_tag else _docstring_lines(item)
+                    methods[item.name] = m_lines if m_lines is not None else fallback
             if methods:
                 classes[node.name] = {
-                    "x_abstract": class_lines if class_lines is not None else "docs",
+                    "x_abstract": class_lines if class_lines is not None else fallback,
                     "def": methods,
                 }
             else:
-                classes[node.name] = class_lines if class_lines is not None else "docs"
+                classes[node.name] = (
+                    class_lines if class_lines is not None else fallback
+                )
 
         elif isinstance(node, (_ast.FunctionDef, _ast.AsyncFunctionDef)):
             if node.name in _SKIP_DUNDERS:
                 continue
-            # Top-level functions always use the docs tag (rendered from source)
-            functions[node.name] = "docs"
+            functions[node.name] = fallback
 
     if not classes and not functions:
-        module_lines = _docstring_lines(tree)
-        return module_lines if module_lines is not None else "docs"
+        module_lines = None if explicit_tag else _docstring_lines(tree)
+        return module_lines if module_lines is not None else fallback
 
     entry: dict[str, Any] = {}
-    # Add module docstring as x_abstract if present
-    module_lines = _docstring_lines(tree)
+    module_lines = None if explicit_tag else _docstring_lines(tree)
     if module_lines is not None:
         entry["x_abstract"] = module_lines
+    elif explicit_tag and (classes or functions):
+        entry["x_abstract"] = explicit_tag
     if classes:
         entry["class"] = classes
     if functions:
@@ -150,7 +160,12 @@ def _build_file_entry(path: Path) -> Any:
     return entry
 
 
-def run_init(root: Path, folder: bool = False) -> None:
+def run_init(
+    root: Path,
+    folder: bool = False,
+    default_tag: str = "docs",
+    explicit_tag: str | None = None,
+) -> None:
     """Walk project, discover files, create root abstract-tree.yaml.
 
     If folder=True, files are placed inside a .abstract-tree/ subdirectory
@@ -272,17 +287,17 @@ def run_init(root: Path, folder: bool = False) -> None:
         dir_abs = root / dot_key.replace(".", "/")
         dir_entry: dict[str, Any] = {"is_dir": True}
         for fname in files:
-            dir_entry[fname] = _build_file_entry(dir_abs / fname)
+            dir_entry[fname] = _build_file_entry(dir_abs / fname, explicit_tag)
         entries[dot_key] = dir_entry
 
     # Root-level files after directories (sorted)
     for fname in sorted(root_files):
-        entries[fname] = _build_file_entry(root / fname)
+        entries[fname] = _build_file_entry(root / fname, explicit_tag)
 
     config.ext_found = sorted(found_extensions)
     config.is_flat = True  # init always produces a flat structure
 
-    data = build_root_abstract(config=config, root_tag="docs", entries=entries)
+    data = build_root_abstract(config=config, root_tag=default_tag, entries=entries)
 
     save_yaml(abstract_path, data)
     if folder:

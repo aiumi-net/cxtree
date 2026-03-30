@@ -300,9 +300,14 @@ def render_class(
             result.extend(ds_src)
             has_preamble = True
 
-        # Class attribute placeholder: # ... when rm_empty_lines_docs and class body has
-        # any assignments (Assign or AnnAssign — covers both class constants and dataclass fields).
-        if rm_empty_lines_docs and class_tag in ("docs", "include"):
+        # Class attribute placeholder: # ... when rm_empty_lines_docs, there IS a class
+        # docstring (so we're in summary mode), and the class body has assignments.
+        # Without a docstring the full body is shown anyway — no placeholder needed.
+        if (
+            rm_empty_lines_docs
+            and class_tag in ("docs", "include")
+            and ds_range is not None
+        ):
             has_assigns = any(
                 isinstance(item, (ast.Assign, ast.AnnAssign)) for item in node.body
             )
@@ -515,6 +520,7 @@ def _render_file_with_symbol_config(
         rm_empty_lines_docs
         and has_module_docstring
         and (bool(func_configs) or bool(class_configs))
+        and inherited_tag == "docs"
     )
     pending_compress = False
     is_first_node = True

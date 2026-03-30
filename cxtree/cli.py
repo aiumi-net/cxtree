@@ -33,9 +33,52 @@ def main() -> None:
     default=False,
     help="Store abstract-tree.yaml and context.md inside a .abstract-tree/ subfolder.",
 )
-def cmd_init(root: Path, folder: bool) -> None:
+@click.option(
+    "--default",
+    "-d",
+    "default_tag",
+    type=click.Choice(["docs", "code", "include"]),
+    default="docs",
+    show_default=True,
+    help="Default tag inherited down the tree (docs/code/include).",
+)
+@click.option(
+    "--docs",
+    "explicit_tag",
+    flag_value="docs",
+    help=(
+        "Set 'docs' explicitly on every entry in the tree. "
+        "Docstrings are pulled from source at render time instead of being embedded."
+    ),
+)
+@click.option(
+    "--code",
+    "explicit_tag",
+    flag_value="code",
+    help=(
+        "Set 'code' explicitly on every entry in the tree. "
+        "Renders code bodies; docstrings are stripped at render time."
+    ),
+)
+@click.option(
+    "--include",
+    "explicit_tag",
+    flag_value="include",
+    help=(
+        "Set 'include' explicitly on every entry in the tree. "
+        "Full source (code + docstrings) is rendered for every symbol."
+    ),
+)
+def cmd_init(
+    root: Path, folder: bool, default_tag: str, explicit_tag: str | None
+) -> None:
     """Walk project and create root abstract-tree.yaml with discovered paths."""
-    run_init(root.resolve(), folder=folder)
+    run_init(
+        root.resolve(),
+        folder=folder,
+        default_tag=default_tag,
+        explicit_tag=explicit_tag,
+    )
 
 
 @main.command("create")
@@ -54,11 +97,24 @@ def cmd_init(root: Path, folder: bool) -> None:
     type=click.Path(path_type=Path),
     help="Output file path (default: <root>/context.md).",
 )
-def cmd_create(root: Path, output: Path | None) -> None:
+@click.option(
+    "--max-lines",
+    "-n",
+    "max_lines",
+    default=3000,
+    show_default=True,
+    type=int,
+    help=(
+        "Maximum lines per context.md. When exceeded the file is not written at the "
+        "current level; instead one context.md per subfolder is created recursively "
+        "until the limit is met or leaf directories are reached."
+    ),
+)
+def cmd_create(root: Path, output: Path | None, max_lines: int) -> None:
     """Generate context.md from abstract-tree.yaml configuration."""
     resolved_root = root.resolve()
     resolved_output = output.resolve() if output else None
-    run_create(resolved_root, resolved_output)
+    run_create(resolved_root, resolved_output, max_lines=max_lines)
 
 
 @main.command("rm")
@@ -98,9 +154,23 @@ def cmd_leaf(root: Path) -> None:
     required=False,
     type=click.Path(exists=True, file_okay=False, dir_okay=True, path_type=Path),
 )
-def cmd_tree(path: Path) -> None:
+@click.option(
+    "--max-lines",
+    "-n",
+    "max_lines",
+    default=3000,
+    show_default=True,
+    type=int,
+    help=(
+        "Line budget used to compute the fill-percentage shown next to each "
+        "directory. A percentage is shown only where create --max-lines N would "
+        "write a context.md (fits in budget, parent overflows). "
+        "green ≤ 80 %, yellow ≤ 90 %, red > 90 %."
+    ),
+)
+def cmd_tree(path: Path, max_lines: int) -> None:
     """Show a colored directory tree of the project."""
-    run_tree(path.resolve())
+    run_tree(path.resolve(), max_lines=max_lines)
 
 
 @main.command("flatten")

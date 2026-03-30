@@ -6,10 +6,10 @@ from pathlib import Path
 
 from rich.console import Console
 
-from ..models import (ABSTRACT_TREE_FOLDER, ROOT_ABSTRACT_FILE,
+from ..models import (ABSTRACT_TREE_FOLDER, ROOT_ABSTRACT_FILE, Config,
                       get_abstract_tree_dir)
 from ..renderer import render_context
-from ..walker import ProjectWalker
+from ..walker import FileEntry, ProjectWalker, WalkResult
 
 console = Console()
 
@@ -53,7 +53,69 @@ def _manage_folder_mode_context(abstract_dir: Path) -> None:
             renamed.rename(bin_dir / renamed.name)
 
 
-def run_create(root: Path, output: Path | None = None) -> None:
+def _split_context(
+    files: list[FileEntry],
+    write_dir: Path,
+    project_root: Path,
+    config: Config,
+    max_lines: int,
+    written: list[Path],
+) -> None:
+    """Recursively write context.md, splitting by immediate subfolder when max_lines exceeded.
+
+    If the rendered content for *write_dir* fits within *max_lines* (or write_dir has no
+    subdirectories to split into), a single context.md is written there.  Otherwise the
+    files are grouped by their immediate subdirectory under *write_dir* and this function
+    is called recursively for each group.  Files that live directly in *write_dir* (not
+    under any subfolder) are written to write_dir/context.md without further splitting.
+    """
+    if not files:
+        return
+
+    # Partition files into "direct" (in write_dir itself) vs. per-subdir groups
+    direct: list[FileEntry] = []
+    by_subdir: dict[Path, list[FileEntry]] = {}
+    for fe in files:
+        try:
+            rel = fe.path.relative_to(write_dir)
+        except ValueError:
+            direct.append(fe)
+            continue
+        parts = rel.parts
+        if len(parts) <= 1:
+            direct.append(fe)
+        else:
+            subdir = write_dir / parts[0]
+            by_subdir.setdefault(subdir, []).append(fe)
+
+    # Try rendering everything together
+    sub_result = WalkResult(root=project_root, config=config, files=files)
+    content = render_context(sub_result)
+    line_count = len(content.splitlines())
+
+    if line_count <= max_lines or not by_subdir:
+        # Fits (or no subdirs to split into): write here
+        out = write_dir / "context.md"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(content, encoding="utf-8")
+        written.append(out)
+        return
+
+    # Exceeds limit and subdirs exist: recurse into each subdir.
+    # Files directly in write_dir are still written at this level.
+    if direct:
+        direct_result = WalkResult(root=project_root, config=config, files=direct)
+        direct_content = render_context(direct_result)
+        direct_out = write_dir / "context.md"
+        direct_out.parent.mkdir(parents=True, exist_ok=True)
+        direct_out.write_text(direct_content, encoding="utf-8")
+        written.append(direct_out)
+
+    for subdir, sub_files in sorted(by_subdir.items()):
+        _split_context(sub_files, subdir, project_root, config, max_lines, written)
+
+
+def run_create(root: Path, output: Path | None = None, max_lines: int = 3000) -> None:
     """Walk directory, apply abstract.yaml config, render context.md."""
     abstract_dir = get_abstract_tree_dir(root)
     folder_mode = abstract_dir != root
@@ -75,10 +137,23 @@ def run_create(root: Path, output: Path | None = None) -> None:
         console.print("[yellow]Warning:[/yellow] No files found to include in context.")
 
     content = render_context(result)
+    line_count = len(content.splitlines())
 
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(content, encoding="utf-8")
-
-    console.print(f"[green]Written[/green] {output_path}")
-    console.print(f"  Files included: {len(result.files)}")
-    console.print(f"  Size: {len(content):,} characters")
+    # When an explicit output path is given, always write there regardless of max_lines.
+    if output or line_count <= max_lines:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(content, encoding="utf-8")
+        console.print(f"[green]Written[/green] {output_path}")
+        console.print(f"  Files included: {len(result.files)}")
+        console.print(f"  Size: {len(content):,} characters ({line_count:,} lines)")
+    else:
+        # Content exceeds max_lines: split recursively by folder
+        console.print(
+            f"[yellow]Content exceeds {max_lines:,} lines ({line_count:,} lines) — "
+            f"splitting into per-folder context.md files.[/yellow]"
+        )
+        written: list[Path] = []
+        _split_context(result.files, root, root, result.config, max_lines, written)
+        console.print(f"  Files included: {len(result.files)}")
+        for p in written:
+            console.print(f"[green]Written[/green] {p}")

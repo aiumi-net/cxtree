@@ -12,39 +12,51 @@ console = Console()
 
 
 def run_rm(root: Path) -> None:
-    """Remove context.md, abstract-tree.yaml, and all abstract.yaml files.
+    """Remove all cxtree-generated artefacts under *root* in a single pass.
 
-    In folder mode (.abstract-tree/ exists), the entire .abstract-tree/ directory
-    is deleted (including rotated context files and bin/).
-    In normal mode, only context.md and abstract-tree.yaml are removed.
-    In both modes, all child abstract.yaml files in subdirectories are removed.
+    Removed unconditionally (regardless of normal vs. folder mode):
+    - ``.abstract-tree/`` folder (entire tree, including rotated context files)
+    - ``abstract-tree.yaml`` at project root
+    - ``context.md`` at project root
+    - All ``abstract.yaml`` child files in subdirectories
+    - All ``context.md`` files in subdirectories (split-mode artefacts from
+      ``create --max-lines``)
     """
-    abstract_dir = get_abstract_tree_dir(root)
-    folder_mode = abstract_dir != root
     removed: list[str] = []
 
-    if folder_mode:
-        # Delete the entire .abstract-tree directory
-        shutil.rmtree(abstract_dir)
-        removed.append(str(abstract_dir) + "/")
-    else:
-        # Normal mode: remove specific files
-        context_path = abstract_dir / "context.md"
-        if context_path.exists():
-            context_path.unlink()
-            removed.append(str(context_path))
+    # .abstract-tree/ folder (folder mode)
+    abstract_tree_folder = root / ABSTRACT_TREE_FOLDER
+    if abstract_tree_folder.exists():
+        shutil.rmtree(abstract_tree_folder)
+        removed.append(str(abstract_tree_folder) + "/")
 
-        abstract_tree_path = abstract_dir / ROOT_ABSTRACT_FILE
-        if abstract_tree_path.exists():
-            abstract_tree_path.unlink()
-            removed.append(str(abstract_tree_path))
+    # Root-level abstract-tree.yaml
+    abstract_tree_path = root / ROOT_ABSTRACT_FILE
+    if abstract_tree_path.exists():
+        abstract_tree_path.unlink()
+        removed.append(str(abstract_tree_path))
 
-    # Remove all child abstract.yaml files in subdirectories
+    # Root-level context.md
+    root_context = root / "context.md"
+    if root_context.exists():
+        root_context.unlink()
+        removed.append(str(root_context))
+
+    # Child abstract.yaml files in subdirectories
     for abstract_file in sorted(root.rglob(ABSTRACT_FILE)):
         if ABSTRACT_TREE_FOLDER in abstract_file.parts:
             continue
         abstract_file.unlink()
         removed.append(str(abstract_file))
+
+    # context.md files in subdirectories (split-mode artefacts)
+    for context_file in sorted(root.rglob("context.md")):
+        if ABSTRACT_TREE_FOLDER in context_file.parts:
+            continue
+        if context_file.parent == root:
+            continue  # already handled above
+        context_file.unlink()
+        removed.append(str(context_file))
 
     if removed:
         for path in removed:

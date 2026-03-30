@@ -112,7 +112,7 @@ def _parse_func(src: str, name: str = "foo") -> tuple[ast.FunctionDef, list[str]
             isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
             and node.name == name
         ):
-            return node, src.splitlines(keepends=True)
+            return node, src.splitlines(keepends=True)  # type: ignore
     raise ValueError(f"Function {name!r} not found")
 
 
@@ -125,6 +125,7 @@ class TestRenderFunction:
         """)
         node, lines = _parse_func(src)
         result = render_function(node, lines, "docs")
+        assert result is not None
         rendered = "".join(result)
         assert "def foo():" in rendered
         assert "This is the docstring." in rendered
@@ -141,6 +142,7 @@ class TestRenderFunction:
         """)
         node, lines = _parse_func(src)
         result = render_function(node, lines, "docs")
+        assert result is not None
         rendered = "".join(result)
         assert "def foo():" in rendered
         assert "Docstring here." in rendered
@@ -161,6 +163,7 @@ class TestRenderFunction:
         """)
         node, lines = _parse_func(src)
         result = render_function(node, lines, "docs")
+        assert result is not None
         rendered = "".join(result)
         assert "def foo():" in rendered
         # --- removes itself + 2 more lines (y and z), leaving w
@@ -176,6 +179,7 @@ class TestRenderFunction:
         """)
         node, lines = _parse_func(src, "bar")
         result = render_function(node, lines, "code")
+        assert result is not None
         rendered = "".join(result)
         assert "def bar():" in rendered
         assert "return 42" in rendered
@@ -196,6 +200,7 @@ class TestRenderFunction:
         """)
         node, lines = _parse_func(src, "baz")
         result = render_function(node, lines, "include")
+        assert result is not None
         rendered = "".join(result)
         assert "def baz():" in rendered
         assert "Docstring." in rendered
@@ -232,6 +237,7 @@ class TestRenderClass:
         """)
         node, lines = _parse_class(src)
         result = render_class(node, lines, "docs", {})
+        assert result is not None
         rendered = "".join(result)
         assert "class MyClass:" in rendered
         assert "Class docstring." in rendered
@@ -248,6 +254,7 @@ class TestRenderClass:
         node, lines = _parse_class(src)
         method_configs = {"_private": ("exclude", None, None)}
         result = render_class(node, lines, "include", method_configs)
+        assert result is not None
         rendered = "".join(result)
         assert "def public" in rendered
         assert "_private" not in rendered
@@ -263,11 +270,47 @@ class TestRenderClass:
         node, lines = _parse_class(src)
         method_configs = {"do_thing": ("docs", None, None)}
         result = render_class(node, lines, "include", method_configs)
+        assert result is not None
         rendered = "".join(result)
         assert "def do_thing" in rendered
         assert "Do something." in rendered
         assert "# ..." in rendered
         assert "x = 1" not in rendered
+
+    def test_no_spurious_placeholder_without_docstring(self):
+        """Class with no docstring but class-level attributes must NOT get # ... placeholder."""
+        src = textwrap.dedent("""\
+        class AuthService:
+            _FAKE = "secret"
+
+            def login(self):
+                return True
+        """)
+        node, lines = _parse_class(src, "AuthService")
+        result = render_class(node, lines, "docs", {}, rm_empty_lines_docs=True)
+        assert result is not None
+        rendered = "".join(result)
+        # No docstring → full body should be shown; no stray # ... before the method
+        assert "class AuthService:" in rendered
+        assert "def login" in rendered
+        assert rendered.count("# ...") == 0
+
+    def test_placeholder_present_when_docstring_exists(self):
+        """Class WITH a docstring and class-level attributes should still get # ... placeholder."""
+        src = textwrap.dedent("""\
+        class Service:
+            '''Service docstring.'''
+            _SECRET = "x"
+
+            def run(self):
+                return True
+        """)
+        node, lines = _parse_class(src, "Service")
+        result = render_class(node, lines, "docs", {}, rm_empty_lines_docs=True)
+        assert result is not None
+        rendered = "".join(result)
+        assert "Service docstring." in rendered
+        assert "# ..." in rendered
 
 
 # ---------------------------------------------------------------------------
