@@ -1,6 +1,6 @@
 [project]
 name = "cxtree"
-version = "1.0.1"
+version = "1.0.2"
 description = "Generate focused, token-efficient LLM context files from your project."
 readme = "README.md"
 requires-python = ">=3.11"

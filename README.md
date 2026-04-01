@@ -11,7 +11,7 @@
 blocks and writes `context.md` — ready to paste into any LLM chat. When the
 project is large it automatically splits into per-folder files.
 
-![DEMO](/tests/app_1/demo.gif)
+![DEMO](https://raw.githubusercontent.com/aiumi-net/cxtree/main/tests/app_1/demo.gif)
 
 ---
 
