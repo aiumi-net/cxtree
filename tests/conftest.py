@@ -10,7 +10,7 @@ import pytest
 
 @pytest.fixture
 def simple_project(tmp_path: Path) -> Path:
-    """A minimal Python project with a root module and a subdirectory."""
+    """Minimal Python project: one root file and one subdirectory."""
     (tmp_path / "main.py").write_text(
         textwrap.dedent("""\
         def hello():
@@ -34,7 +34,7 @@ def simple_project(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def nested_project(tmp_path: Path) -> Path:
-    """A project with two levels of nesting."""
+    """Project with two levels of nesting."""
     (tmp_path / "app.py").write_text("# app root\n", encoding="utf-8")
     domain = tmp_path / "domain"
     domain.mkdir()

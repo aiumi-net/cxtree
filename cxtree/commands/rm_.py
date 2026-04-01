@@ -5,62 +5,72 @@ from pathlib import Path
 
 from rich.console import Console
 
-from ..models import (ABSTRACT_FILE, ABSTRACT_TREE_FOLDER, ROOT_ABSTRACT_FILE,
-                      get_abstract_tree_dir)
+from ..config import (ABSTRACT_LEAF_FILE, ABSTRACT_TREE_FILE, CONTEXT_FILE,
+                      CONTEXT_TREE_DIR, SUBCONTEXT_FILE)
+from ..yaml_io import load_leaf
 
 console = Console()
 
 
-def run_rm(root: Path) -> None:
-    """Remove all cxtree-generated artefacts under *root* in a single pass.
+def _leaf_is_clean(path: Path) -> bool:
+    """Return True if all values in abstract-leaf.yaml are False (no user summaries)."""
+    data = load_leaf(path.parent)
+    if not data:
+        return True
+    return all(v is False for v in data.values())
 
-    Removed unconditionally (regardless of normal vs. folder mode):
-    - ``.abstract-tree/`` folder (entire tree, including rotated context files)
+
+def run_rm(root: Path) -> None:
+    """Remove all cxtree-generated artefacts under *root*.
+
+    Always removed:
+    - ``.context-tree/`` folder
     - ``abstract-tree.yaml`` at project root
-    - ``context.md`` at project root
-    - All ``abstract.yaml`` child files in subdirectories
-    - All ``context.md`` files in subdirectories (split-mode artefacts from
-      ``create --max-lines``)
+    - ``context.md`` at root and in all sub-directories
+
+    Conditionally removed:
+    - ``abstract-leaf.yaml`` — only if every value is ``false``
+      (i.e. no user-written summaries present).
     """
     removed: list[str] = []
 
-    # .abstract-tree/ folder (folder mode)
-    abstract_tree_folder = root / ABSTRACT_TREE_FOLDER
-    if abstract_tree_folder.exists():
-        shutil.rmtree(abstract_tree_folder)
-        removed.append(str(abstract_tree_folder) + "/")
+    def _rm(path: Path) -> None:
+        if path.is_dir():
+            shutil.rmtree(path)
+        else:
+            path.unlink()
+        removed.append(str(path.relative_to(root)))
 
-    # Root-level abstract-tree.yaml
-    abstract_tree_path = root / ROOT_ABSTRACT_FILE
-    if abstract_tree_path.exists():
-        abstract_tree_path.unlink()
-        removed.append(str(abstract_tree_path))
+    # .context-tree/ folder (also contains abstract-tree.yaml in folder mode)
+    ctx_dir = root / CONTEXT_TREE_DIR
+    if ctx_dir.exists():
+        _rm(ctx_dir)
 
-    # Root-level context.md
-    root_context = root / "context.md"
-    if root_context.exists():
-        root_context.unlink()
-        removed.append(str(root_context))
+    # abstract-tree.yaml at root (normal mode)
+    abstract_tree = root / ABSTRACT_TREE_FILE
+    if abstract_tree.exists():
+        _rm(abstract_tree)
 
-    # Child abstract.yaml files in subdirectories
-    for abstract_file in sorted(root.rglob(ABSTRACT_FILE)):
-        if ABSTRACT_TREE_FOLDER in abstract_file.parts:
+    # context.md (root) and _context.md (subdirs)
+    for pattern in (CONTEXT_FILE, SUBCONTEXT_FILE):
+        for ctx_file in sorted(root.rglob(pattern)):
+            if CONTEXT_TREE_DIR in ctx_file.parts:
+                continue
+            _rm(ctx_file)
+
+    # abstract-leaf.yaml — only if clean (all values false)
+    for leaf_file in sorted(root.rglob(ABSTRACT_LEAF_FILE)):
+        if CONTEXT_TREE_DIR in leaf_file.parts:
             continue
-        abstract_file.unlink()
-        removed.append(str(abstract_file))
-
-    # context.md files in subdirectories (split-mode artefacts)
-    for context_file in sorted(root.rglob("context.md")):
-        if ABSTRACT_TREE_FOLDER in context_file.parts:
-            continue
-        if context_file.parent == root:
-            continue  # already handled above
-        context_file.unlink()
-        removed.append(str(context_file))
+        if _leaf_is_clean(leaf_file):
+            _rm(leaf_file)
+        else:
+            rel = str(leaf_file.relative_to(root))
+            console.print(f"[yellow]Kept[/yellow]   {rel}  (has user summaries)")
 
     if removed:
-        for path in removed:
-            console.print(f"[red]Removed[/red] {path}")
+        for r in removed:
+            console.print(f"[red]Removed[/red] {r}")
         console.print(f"  Total: {len(removed)} item(s) removed")
     else:
         console.print("[yellow]Nothing to remove.[/yellow]")

@@ -1,17 +1,12 @@
 # cxtree
 
 [![PyPI](https://img.shields.io/pypi/v/cxtree)](https://pypi.org/project/cxtree/)
-[![GitHub](https://img.shields.io/badge/github-aiumi--net%2Fcxtree-blue)](https://github.com/aiumi-net/cxtree)
 
 > Generate focused, token-efficient LLM context files from your project.
 
-`cxtree` walks a project directory and produces a structured Markdown file
-containing the directory tree and relevant source files as code blocks — ready
-to paste into any LLM chat as context.
-
-The key idea: instead of dumping everything into the context window, you control
-exactly what the LLM sees — per directory, per file, per class, per function —
-using a YAML configuration file.
+`cxtree` walks a project directory, assembles source files into Markdown code
+blocks and writes `context.md` -- ready to paste into any LLM chat. When the
+project is large it automatically splits into per-folder files.
 
 ---
 
@@ -19,546 +14,259 @@ using a YAML configuration file.
 
 ```bash
 pip install cxtree
-```
-
-Or with [uv](https://github.com/astral-sh/uv):
-
-```bash
+# or
 uv add cxtree
 ```
+
+Requires Python 3.11+.
 
 ---
 
 ## Quick start
 
 ```bash
-# 1. Generate abstract-tree.yaml in your project root
-cxtree init
-
-# 2. Edit abstract-tree.yaml to configure what the LLM sees (optional)
-
-# 3. Generate context.md
-cxtree create
+cd my-project
+cxtree create          # writes context.md
+# paste context.md into your LLM
 ```
-
-Then paste `context.md` into any LLM chat.
 
 ---
 
 ## Commands
 
-All commands accept `-r / --root` to point at a project directory other than `.`.
+### `cxtree tree`
 
-### `init`
+Print a coloured directory tree with line-budget percentages.
 
-Traverses the project, discovers files, and writes `abstract-tree.yaml` to the
-project root. If a file already exists it is preserved — only new entries are
-added.
-
-```bash
-cxtree init
-cxtree init -r path/to/project
+```
+cxtree tree [-n N]
 ```
 
-**`--folder` flag** — stores both `abstract-tree.yaml` and `context.md` inside a
-`.abstract-tree/` subdirectory (which gets a `.gitignore` that excludes its
-contents from git). Useful for keeping the project root clean.
+| Option | Default | Description |
+|--------|---------|-------------|
+| `-n` / `--max-lines` | `3000` | Line budget used to colour percentage labels |
 
-```bash
-cxtree init --folder
-```
+Colours: **green** <= 80 %, **yellow** <= 90 %, **red** <= 100 %, **magenta** > 100 %.
 
-Switching between folder and normal mode re-runs automatically and cleans up the
-previous location.
-
-**`--default docs|code|include`** — sets the `x_root` tag written into the
-`cxtree:` header of `abstract-tree.yaml`. This tag is the default inherited by
-every entry in the tree. Defaults to `docs`.
-
-```bash
-cxtree init --default include   # x_root: include — show full source by default
-cxtree init --default code      # x_root: code    — code bodies, no docstrings
-```
-
-**`--docs` / `--code` / `--include`** — write the chosen tag *explicitly* on
-every entry in the tree instead of embedding extracted docstring text. The
-structure (file → class → method) is still built; only the values change.
-
-| Flag | Effect on each entry |
-|---|---|
-| `--docs` | `x_abstract: docs` — docstring pulled from source at render time |
-| `--code` | `x_abstract: code` — code body rendered, docstring stripped |
-| `--include` | `x_abstract: include` — full source rendered |
-
-Without any of these flags (the default) `init` extracts docstrings from the
-source and embeds them as text in the yaml, so they can be read and edited
-independently of the code.
-
-```bash
-cxtree init --docs     # fast shorthand: reference docstrings, don't embed them
-cxtree init --include  # full-source mode for everything
-cxtree init --default include --docs   # x_root=include but docs tags everywhere
-```
+If `abstract-tree.yaml` exists its `include_extensions` / `exclude_folders`
+settings are applied to the tree.
 
 ---
 
-### `create`
+### `cxtree create`
 
-Reads `abstract-tree.yaml` and generates `context.md`.
-
-```bash
-cxtree create
-cxtree create -o docs/llm-context.md   # custom output path
-```
-
-**`--docs` / `--code` / `--include`** — override the effective tag on every
-file at render time without modifying any configuration files. Useful for a
-quick one-off render in a different mode.
-
-| Flag | Effect |
-|---|---|
-| `--docs` | Render only docstrings for every symbol |
-| `--code` | Render code bodies, strip docstrings |
-| `--include` | Render full source (code + docstrings) |
-
-```bash
-cxtree create --code     # one-shot code render, no yaml changes
-cxtree create --docs     # one-shot docs render
-```
-
-**`--max-lines N`** (default: 3 000) — maximum number of lines allowed in a
-single `context.md`. When the generated content exceeds this limit the file is
-**not** written at the current level; instead one `context.md` is created per
-immediate subfolder and the process recurses until each file fits within the
-limit or a leaf directory is reached.
-
-```bash
-cxtree create --max-lines 2000   # split if content > 2 000 lines
-cxtree create -n 500             # short form
-```
-
-Split-mode artefacts are spread across the project tree:
+Generate `context.md` from the current directory.
 
 ```
-project/
-├── domain/
-│   ├── context.md          # only domain/base.py (direct file)
-│   └── users/
-│       └── context.md      # auth.py + models.py
-└── settings/
-    └── context.md          # config.py
+cxtree create [-n N] [--code | --complete] [-f]
 ```
 
-Every `create` run first removes all existing `context.md` files under the
-project root (excluding `.abstract-tree/`) so stale split files from a
-previous `-n <small>` run never accumulate alongside the new output.
+| Option | Default | Description |
+|--------|---------|-------------|
+| `-n` / `--max-lines` | `3000` (or saved value) | Max lines per `context.md` before splitting |
+| `--complete` | default | Verbatim file content |
+| `--code` | | Strip docstrings; apply `# CX` markers |
+| `-f` / `--folder` | | Store files in `.context-tree/` with rotation |
 
-`cxtree rm` removes **all** `context.md` files in subdirectories as well as the
-root one. When `--output` is given explicitly, `--max-lines` is ignored and a
-single file is always written.
+**What it writes:**
+
+- `context.md` -- at the project root (or `.context-tree/context.md` in folder mode)
+- `_context.md` -- in each overflowed sub-directory (normal mode)
+- `abstract-tree.yaml` -- project structure + saved config
+- `abstract-leaf.yaml` -- per-directory key/value index (see below)
+
+**Overflow / splitting:**
+
+When the total line count exceeds `-n`, `create` splits by immediate
+sub-directories: each sub-directory gets its own `_context.md` (recursing as
+needed). The root `context.md` contains only root-level files plus references
+to the sub-contexts. Overflowed directories appear as `_context.md` in
+`abstract-tree.yaml`.
+
+**`-n` is remembered:**
+
+The first time you pass `-n 500`, the value is saved in `abstract-tree.yaml`.
+Subsequent `cxtree create` calls without `-n` reuse the saved value.
 
 ---
 
-### `leafs`
+### `cxtree rm`
 
-Splits the flat root `abstract-tree.yaml` into per-directory `abstract.yaml`
-child files. Useful for large projects where many directories need fine-grained
-control.
-
-```bash
-cxtree leafs
-```
-
-Each directory with file-level entries gets its own `abstract.yaml`. The root
-file is reduced to directory stubs. Re-running `leafs` on an already-split
-project merges changes back first, then re-splits.
-
----
-
-### `flatten`
-
-The reverse of `leafs`. Reads all child `abstract.yaml` files and merges their
-entries back into the root file, then deletes them.
-
-```bash
-cxtree flatten             # flatten everything
-cxtree flatten domain      # flatten only the domain/ subtree
-cxtree flatten domain.users
-```
-
----
-
-### `tree`
-
-Prints a coloured directory tree of the project respecting the same exclusion
-rules as `init`.
-
-```bash
-cxtree tree
-```
-
-Folders are shown in orange, `.py` files in blue, everything else in white.
-
-**`-n / --max-lines N`** (default: 3 000) — overlay line-budget percentages on
-the tree. A percentage is shown at directories where `create --max-lines N`
-would actually write a `context.md`:
-
-- The directory's content **fits** within the budget (≤ 100 % → not split further), **and**
-- Its parent **overflows** (> 100 % → was split), forcing this directory to get its own file.
-  The project root is shown when it fits and no splitting would occur at all.
-
-**Leaf directories** (no subdirectories with content) always show their
-percentage even when they exceed 100 %, because there is nothing left to split
-into. A magenta label signals that the module is too large and should be broken
-up into smaller sub-packages.
-
-| Colour | Range |
-|---|---|
-| green | ≤ 80 % |
-| yellow | 80 – 90 % |
-| red | 90 – 100 % |
-| magenta | > 100 % (leaf, cannot split further) |
-
-```bash
-cxtree tree           # uses default budget of 3 000 lines
-cxtree tree -n 500    # tighter budget — more split points visible
-```
-
-Example with `-n 190` on a medium-sized project:
+Remove all cxtree-generated artefacts.
 
 ```
-APP_2
-├── api
-│   ├── v1 49%
-│   ├── middleware.py
-│   └── routes.py
-├── core
-│   ├── cache 61%
-│   ├── config.py
-│   └── events.py
-├── domain 67%
-└── workers 76%
-```
-
-`api` (111 %) and `core` (105 %) overflow so they are unlabelled. Their children
-that fit the budget (`v1`, `cache`) are labelled instead. `domain` and `workers`
-fit directly under the overflowing root, so they are labelled too.
-
----
-
-### `rm`
-
-Removes **all** cxtree-generated artefacts under the given directory in a single
-pass, regardless of whether the project is in normal or folder mode:
-
-- `.abstract-tree/` folder
-- `abstract-tree.yaml` at project root
-- `context.md` at project root
-- All `abstract.yaml` child files in subdirectories
-- All `context.md` files in subdirectories (split-mode artefacts from
-  `create --max-lines`)
-
-```bash
 cxtree rm
+```
+
+**Always removed:** `.context-tree/`, `abstract-tree.yaml`, all `context.md`
+files.
+
+**Conditionally kept:** `abstract-leaf.yaml` files that contain user-written
+summaries (any value other than `false`) are preserved so that documentation
+committed to the repository is not lost.
+
+---
+
+## Render modes
+
+### `--complete` (default)
+
+File content is copied verbatim into the code block.
+
+### `--code`
+
+Docstrings are stripped from Python files. A docstring is **kept** when its
+body contains the marker `# cxtree` (or `#cxtree`).
+
+```python
+def deploy():
+    """
+    Deploy to production.
+    # cxtree  <- marker: keep this docstring
+    """
+    ...
+```
+
+**Inline markers** (work in both modes, applied to non-docstring code):
+
+| Marker | Effect |
+|--------|--------|
+| `# CX` or `# cxtree` | Remove this line from the output |
+| `# CX -N` or `# cxtree -N` | Remove the next N lines; insert `# ...` |
+
+```python
+SECRET_KEY = "abc123"  # CX          # <- line removed
+
+# cxtree -3                           # <- next 3 lines replaced with # ...
+token = header[7:]
+sig   = hmac.new(SECRET_KEY, token)
+valid = sig == expected
 ```
 
 ---
 
 ## abstract-tree.yaml
 
-`abstract-tree.yaml` is the root configuration file. It has two sections:
-
-1. A `cxtree:` header block with project-wide settings.
-2. Directory and file entries that control what the LLM sees.
-
-### Header block
+Auto-generated at the project root. Contains a config header and a flat tree
+of the project.
 
 ```yaml
 cxtree:
-  x_root: docs           # default tag for the whole project
-  is_flat: true          # true = only root file used; false = leaf mode
-  ext_found: [py, toml]  # written by init — informational only
-  config:
-    x_rm_empty_lines: false       # strip all blank lines from output
-    x_rm_empty_lines_docs: true   # strip blank lines from doc-only sections
-    include:
-      x_extensions: [py]          # file extensions included in context
-    exclude:
-      x_startswith: [".", "__"]   # skip files/dirs starting with these prefixes
-      x_folders: [".venv", "node_modules", "__pycache__"]
+  n: 3000
+  include_extensions: [py, ts]
+  exclude_startswith: [".", "__"]
+  exclude_folders: [.venv, node_modules, __pycache__, .git, .context-tree]
+
+_root:
+  - main.py
+  - pyproject.toml
+
+src:
+  - utils.py
+  - models.py
+
+src/api:
+  - routes.py
+
+domain: _context.md     # <- overflow: _context.md was created here
+workers: _context.md
 ```
 
-### Directory entries
-
-Directories use dot-notation keys with `is_dir: true`. `init` generates these
-automatically.
-
-```yaml
-domain:
-  is_dir: true
-
-domain.users:
-  is_dir: true
-  models.py: docs
-  auth.py: include
-```
-
-### File entries
-
-Files are nested under their directory key (or at root level for files in the
-project root). The value controls what the LLM sees.
-
-```yaml
-domain.users:
-  is_dir: true
-  models.py: docs          # show docstrings only
-  auth.py: include         # show full source
-  legacy.py: exclude       # hide completely
-  base.py: "Shared base classes — no details needed."  # replace with text
-```
-
----
-
-## Tags
-
-Tags control how a file (or symbol) is rendered.
-
-| Tag | What the LLM sees |
-|---|---|
-| `docs` | Docstrings only — code bodies are replaced with `# ...` |
-| `code` | Code bodies only — docstrings are stripped |
-| `include` | Full source: code + docstrings |
-| `exclude` | Hidden — not included in context at all |
-
-Tags are inherited top-down. The `x_root` value in the header is the starting
-point; any entry without an explicit tag inherits from its parent.
-
----
-
-## Symbol-level configuration
-
-For Python files you can configure individual classes and functions.
-
-```yaml
-domain.users:
-  is_dir: true
-  auth.py:
-    x_abstract:
-      - "Authentication service — login, logout, token validation."
-    class:
-      AuthService:
-        x_abstract:
-          - "Handles login, logout and token validation."
-        def:
-          login: docs          # show docstring only
-          logout: docs
-          validate_token: include   # show full source
-          _sign: exclude       # hide private helper
-    def:
-      create_token: docs
-```
-
-`__init__`, `__post_init__`, `__new__` and other lifecycle dunders are always
-skipped — they are never emitted even with `include`.
-
-`x_abstract` on a file or class sets a description shown above its content.
-Use a list for multi-line descriptions:
-
-```yaml
-auth.py:
-  x_abstract:
-    - "Authentication service."
-    - "Tokens are HMAC-signed. No external JWT library required."
-```
-
----
-
-## Text replacements
-
-Assign any string to a directory or file entry to replace it entirely with that
-text. No further content is shown.
-
-```yaml
-domain.legacy:
-  is_dir: true
-  old_service.py: "Deprecated. Superseded by domain.users.services."
-```
-
-Multiline replacement using a YAML list:
-
-```yaml
-domain.users:
-  is_dir: true
-  models.py:
-    - "User entity with id, username, email, is_active, roles."
-    - "Session entity binding a user_id to a token and expiry."
-```
-
-### `x_hard_abstract` (directory-level)
-
-Setting `x_hard_abstract` on a directory entry replaces the entire directory
-with a single summary line — no files inside are walked.
-
-```yaml
-workers:
-  is_dir: true
-  x_hard_abstract: "Background workers for cleanup and reporting."
-```
-
-Set it to `"off"` to disable the override without removing the key:
-
-```yaml
-workers:
-  is_dir: true
-  x_hard_abstract: "off"
-```
+Edit `include_extensions` and `exclude_folders` to control which files are
+included on subsequent runs. Everything else is informational.
 
 ---
 
 ## abstract-leaf.yaml
 
-Place an `abstract-leaf.yaml` file inside any directory to provide the
-highest-priority flat overrides for that directory. Entries here override
-everything else — tags, symbol config, even the `include_extensions` filter.
+Created alongside each `context.md`. Keys are the immediate files and
+sub-directories; values start as `false`.
 
 ```yaml
-# domain/abstract-leaf.yaml
-notifications: "Email and SMS dispatchers — not relevant for this task."
-models.py: "User entity and Notification entity."
+# src/abstract-leaf.yaml
+utils.py: false
+models.py: false
+api/: false
 ```
 
-**Keys = filenames or subdirectory names** within that directory only.
-Values must be plain strings.
+**Adding summaries:**
 
-To deactivate an entry without deleting it, prefix the key with `.` or `__`
-(the default `exclude_startswith` prefixes):
+Change a value from `false` to a text string. On the next `cxtree create`
+run, the summary is used in `context.md` instead of the actual file/directory
+content -- useful for reducing noise from large or irrelevant modules.
 
 ```yaml
-# disabled — notifications/ is walked normally
-.notifications: "Email and SMS dispatchers — not relevant for this task."
+utils.py: "String helpers -- no LLM context needed."
+models.py: false
+api/: false
 ```
 
-`abstract-leaf.yaml` is never included in the context output itself.
+**Summaries are picked up at every level:**
+
+Sub-directory `abstract-leaf.yaml` files are always merged into the parent
+context. If `domain/abstract-leaf.yaml` marks `users/: "User management"`,
+that summary will appear in the root `context.md` -- no matter whether the
+project overflows or not. The original file content of `domain/users/` is
+suppressed.
+
+**Formatting is preserved:**
+
+`cxtree create` never rewrites existing entries in `abstract-leaf.yaml`. If
+you write a YAML block scalar, it stays a block scalar. New keys for newly
+added files are appended to the end of the file.
+
+**`cxtree rm` behaviour:**
+
+- File is removed when every value is `false`.
+- File is kept when any value is a non-empty string (user summary present).
+
+This lets you commit `abstract-leaf.yaml` to the repository as lightweight
+per-directory documentation.
 
 ---
 
-## Inline source tags
-
-Fine-tune what gets shown inside a function or method body using inline comments.
-
-### `# ++` — show N lines from this point
-
-The number of `+` characters determines how many lines are shown starting from
-and including the tagged line. `# ++` = 2 lines, `# +++` = 3 lines, etc.
-
-```python
-def build_app(config: AppConfig) -> dict:
-    user_svc = UserService(config.db_url)  # ++
-    notif_svc = NotificationService(...)
-    # ← both lines above are shown; rest of body is compressed to # ...
-```
-
-### `# ---` — hide N lines
-
-The number of `-` characters determines how many lines are hidden. The tagged
-line and the N−1 lines that follow are replaced by a single `# ---` placeholder.
-`# ---` = 3 lines hidden, `# ----` = 4 lines, etc.
-
-```python
-def process(self, request: dict) -> dict:
-    token = header[len(prefix):]  # ---
-    request["_token"] = token     # ← this line is hidden (part of the 3)
-    return request
-```
-
-Both tags preserve the indentation of the tagged line in the placeholder.
-
----
-
-## Leaf mode (per-directory child files)
-
-Run `leafs` to split the flat root file into one `abstract.yaml` per directory.
-This is useful when many directories need independent, detailed configuration.
-
-```
-project/
-├── abstract-tree.yaml        # root — directory stubs only
-├── domain/
-│   └── abstract.yaml         # file entries for domain/
-└── api/
-    └── abstract.yaml         # file entries for api/
-```
-
-Child `abstract.yaml` files use the same tag and symbol syntax. They are
-identified by `abstract-depth:` (set automatically by `leafs`) which must match
-the directory's actual depth from the project root.
-
-### `x_is_flat` and `x_hard_abstract` in child abstracts
-
-A subdirectory entry inside a child abstract can carry two control keys:
-
-```yaml
-# domain/abstract.yaml
-abstract-depth: 1
-parent-dirs: [domain]
-
-users:
-  is_dir: true
-  x_is_flat: false          # false = keep its own child abstract
-  x_hard_abstract: "off"    # placeholder — replace "off" with text to activate
-```
-
-- `x_is_flat: true` — merge this subdirectory back into the parent on the next
-  `leafs` run instead of keeping its own child abstract.
-- `x_hard_abstract: "<text>"` — replace the entire subdirectory with a summary
-  in the context output. `"off"` = feature inactive.
-
----
-
-## Folder mode
-
-Use `--folder` to keep generated files out of the project root:
+## Folder mode (`-f`)
 
 ```bash
-cxtree init --folder
-cxtree create    # reads and writes inside .abstract-tree/
+cxtree create -f
 ```
 
-The `.abstract-tree/` directory contains:
+All context files are stored inside `.context-tree/` instead of scattered
+across the project tree. Sub-directory context files use a flat naming
+scheme with `_` as the path separator: `domain/users` -> `domain_users_context.md`.
 
-```
-.abstract-tree/
-├── .gitignore          # excludes everything inside from git
-├── abstract-tree.yaml
-└── context.md
-```
-
-Switch back to normal mode by running `init` without `--folder`:
-
-```bash
-cxtree init       # deletes .abstract-tree/, writes to project root
-```
+- `.context-tree/.gitignore` is created automatically (`*` -- ignores all contents).
+- On each run, previous context files are rotated to `.context-tree/bin/<timestamp>/`.
+- Bin folders older than 2 hours are deleted automatically.
+- Overflow links between files inside `.context-tree/` are bare filenames
+  (e.g. `[domain_users_context.md](domain_users_context.md)`).
+- Once `.context-tree/` exists, folder mode is **auto-activated** on subsequent
+  runs even without `-f`.
 
 ---
 
 ## Example workflow
 
 ```bash
-# Initial setup
-cxtree init
+# First run
+cxtree create -n 2000
 
-# Review abstract-tree.yaml, tune tags and descriptions, then generate
+# Explore the tree with percentages
+cxtree tree -n 2000
+
+# Edit abstract-leaf.yaml in heavy directories to add summaries
+# Then re-generate (n=2000 is remembered)
 cxtree create
 
-# For large projects: split into per-directory files
-cxtree leafs
-
-# Edit individual abstract.yaml files in each directory, then regenerate
-cxtree create
-
-# Merge a subtree back (e.g. after simplifying domain/)
-cxtree flatten domain
-
-# Clean up everything
+# Clean up everything (keeps leaf files with summaries)
 cxtree rm
+
+# Re-run -- abstract-leaf.yaml summaries are picked up automatically
+cxtree create
 ```
+
+---
+
+## License
+
+MIT
