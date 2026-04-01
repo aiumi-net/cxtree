@@ -1,12 +1,30 @@
 # cxtree
 
 [![PyPI](https://img.shields.io/pypi/v/cxtree)](https://pypi.org/project/cxtree/)
+[![Python](https://img.shields.io/pypi/pyversions/cxtree)](https://pypi.org/project/cxtree/)
+[![Tests](https://img.shields.io/github/actions/workflow/status/aiumi-net/cxtree/publish.yml?label=tests)](https://github.com/aiumi-net/cxtree/actions)
+[![License](https://img.shields.io/github/license/aiumi-net/cxtree)](LICENSE)
 
 > Generate focused, token-efficient LLM context files from your project.
 
 `cxtree` walks a project directory, assembles source files into Markdown code
-blocks and writes `context.md` -- ready to paste into any LLM chat. When the
+blocks and writes `context.md` — ready to paste into any LLM chat. When the
 project is large it automatically splits into per-folder files.
+
+![DEMO](/tests/app_1/demo.gif)
+
+---
+
+## Why
+
+Pasting code into an LLM and hoping for the best is not a workflow. Deciding
+*what* the LLM sees — and *why* — forces a clarity that makes every
+conversation more precise and every answer more useful. `cxtree` makes that
+decision explicit: one command generates the context, then `abstract-leaf.yaml`
+files let you progressively annotate your project until the view reflects
+exactly what matters for the task at hand. It takes some upfront effort.
+Navigating a codebase together with an LLM, with full control over its view,
+is worth it.
 
 ---
 
@@ -26,8 +44,8 @@ Requires Python 3.11+.
 
 ```bash
 cd my-project
-cxtree create          # writes context.md
-# paste context.md into your LLM
+cxtree create     # writes context.md
+                  # paste it into your LLM
 ```
 
 ---
@@ -46,7 +64,7 @@ cxtree tree [-n N]
 |--------|---------|-------------|
 | `-n` / `--max-lines` | `3000` | Line budget used to colour percentage labels |
 
-Colours: **green** <= 80 %, **yellow** <= 90 %, **red** <= 100 %, **magenta** > 100 %.
+Colours: **green** ≤ 80 %, **yellow** ≤ 90 %, **red** ≤ 100 %, **magenta** > 100 %.
 
 If `abstract-tree.yaml` exists its `include_extensions` / `exclude_folders`
 settings are applied to the tree.
@@ -70,10 +88,10 @@ cxtree create [-n N] [--code | --complete] [-f]
 
 **What it writes:**
 
-- `context.md` -- at the project root (or `.context-tree/context.md` in folder mode)
-- `_context.md` -- in each overflowed sub-directory (normal mode)
-- `abstract-tree.yaml` -- project structure + saved config
-- `abstract-leaf.yaml` -- per-directory key/value index (see below)
+- `context.md` — at the project root (or `.context-tree/context.md` in folder mode)
+- `_context.md` — in each overflowed sub-directory (normal mode)
+- `abstract-tree.yaml` — project structure + saved config
+- `abstract-leaf.yaml` — per-directory key/value index (see below)
 
 **Overflow / splitting:**
 
@@ -98,8 +116,7 @@ Remove all cxtree-generated artefacts.
 cxtree rm
 ```
 
-**Always removed:** `.context-tree/`, `abstract-tree.yaml`, all `context.md`
-files.
+**Always removed:** `.context-tree/`, `abstract-tree.yaml`, all `context.md` files.
 
 **Conditionally kept:** `abstract-leaf.yaml` files that contain user-written
 summaries (any value other than `false`) are preserved so that documentation
@@ -127,7 +144,7 @@ def deploy():
     ...
 ```
 
-**Inline markers** (work in both modes, applied to non-docstring code):
+**Inline markers** (work in both modes):
 
 | Marker | Effect |
 |--------|--------|
@@ -135,9 +152,9 @@ def deploy():
 | `# CX -N` or `# cxtree -N` | Remove the next N lines; insert `# ...` |
 
 ```python
-SECRET_KEY = "abc123"  # CX          # <- line removed
+SECRET_KEY = "abc123"  # CX
 
-# cxtree -3                           # <- next 3 lines replaced with # ...
+# cxtree -3
 token = header[7:]
 sig   = hmac.new(SECRET_KEY, token)
 valid = sig == expected
@@ -168,7 +185,7 @@ src:
 src/api:
   - routes.py
 
-domain: _context.md     # <- overflow: _context.md was created here
+domain: _context.md     # overflow: _context.md was created here
 workers: _context.md
 ```
 
@@ -191,12 +208,12 @@ api/: false
 
 **Adding summaries:**
 
-Change a value from `false` to a text string. On the next `cxtree create`
-run, the summary is used in `context.md` instead of the actual file/directory
-content -- useful for reducing noise from large or irrelevant modules.
+Change a value from `false` to a string. On the next `cxtree create` run,
+the summary replaces the actual file content — useful for reducing noise from
+large or irrelevant modules.
 
 ```yaml
-utils.py: "String helpers -- no LLM context needed."
+utils.py: "String helpers — no LLM context needed."
 models.py: false
 api/: false
 ```
@@ -205,23 +222,13 @@ api/: false
 
 Sub-directory `abstract-leaf.yaml` files are always merged into the parent
 context. If `domain/abstract-leaf.yaml` marks `users/: "User management"`,
-that summary will appear in the root `context.md` -- no matter whether the
-project overflows or not. The original file content of `domain/users/` is
-suppressed.
+that summary will appear in the root `context.md` regardless of overflow.
 
 **Formatting is preserved:**
 
-`cxtree create` never rewrites existing entries in `abstract-leaf.yaml`. If
-you write a YAML block scalar, it stays a block scalar. New keys for newly
-added files are appended to the end of the file.
-
-**`cxtree rm` behaviour:**
-
-- File is removed when every value is `false`.
-- File is kept when any value is a non-empty string (user summary present).
-
-This lets you commit `abstract-leaf.yaml` to the repository as lightweight
-per-directory documentation.
+`cxtree create` never rewrites existing entries. New keys for newly added
+files are appended to the end of the file. Commit `abstract-leaf.yaml` to the
+repository as lightweight per-directory documentation.
 
 ---
 
@@ -232,37 +239,26 @@ cxtree create -f
 ```
 
 All context files are stored inside `.context-tree/` instead of scattered
-across the project tree. Sub-directory context files use a flat naming
-scheme with `_` as the path separator: `domain/users` -> `domain_users_context.md`.
+across the project tree.
 
-- `.context-tree/.gitignore` is created automatically (`*` -- ignores all contents).
+- `.context-tree/.gitignore` is created automatically.
 - On each run, previous context files are rotated to `.context-tree/bin/<timestamp>/`.
 - Bin folders older than 2 hours are deleted automatically.
-- Overflow links between files inside `.context-tree/` are bare filenames
-  (e.g. `[domain_users_context.md](domain_users_context.md)`).
-- Once `.context-tree/` exists, folder mode is **auto-activated** on subsequent
-  runs even without `-f`.
+- Once `.context-tree/` exists, folder mode is auto-activated on subsequent runs.
 
 ---
 
 ## Example workflow
 
 ```bash
-# First run
-cxtree create -n 2000
+cxtree create -n 2000        # first run — sets and saves budget
+cxtree tree -n 2000          # explore with percentages
 
-# Explore the tree with percentages
-cxtree tree -n 2000
+# annotate heavy directories in abstract-leaf.yaml, then:
+cxtree create                # n=2000 is reused
 
-# Edit abstract-leaf.yaml in heavy directories to add summaries
-# Then re-generate (n=2000 is remembered)
-cxtree create
-
-# Clean up everything (keeps leaf files with summaries)
-cxtree rm
-
-# Re-run -- abstract-leaf.yaml summaries are picked up automatically
-cxtree create
+cxtree rm                    # clean up (keeps leaf files with summaries)
+cxtree create                # summaries are picked up automatically
 ```
 
 ---
